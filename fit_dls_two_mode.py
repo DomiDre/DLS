@@ -1,4 +1,5 @@
 import matplotlib as mpl
+import time
 mpl.use("Qt5Agg")
 
 from PyQt5 import QtCore
@@ -32,11 +33,14 @@ class DLSViewer(pyqt5widget.QMainWindow):
 
         self.index = 0
         self.n_skip = 5
-
+        
+        self.qtimer = QtCore.QTimer()
+        
         if os.path.exists(self.data_folder_path+"/TwoModeFittingData.p"):
             print("Loading previous fitting results from " +\
                         self.data_folder_path+"/TwoModeFittingData.p")
-            self.dat_files_list, self.dat_files_data = pickle.load( open( self.data_folder_path+"/TwoModeFittingData.p", "rb" ) )
+            self.dat_files_list, self.dat_files_data =\
+                pickle.load( open( self.data_folder_path+"/TwoModeFittingData.p", "rb" ) )
         else:
             self.load_dat_files()
 
@@ -114,10 +118,16 @@ class DLSViewer(pyqt5widget.QMainWindow):
         self.tf = pyqt5widget.QLineEdit()
         self.cf = pyqt5widget.QCheckBox(self)
         self.cf.setChecked(True)
+
+        self.lnskip = pyqt5widget.QLabel("Skip: ")
+        self.tnskip = pyqt5widget.QLineEdit()
+        self.tnskip.setText(str(self.n_skip))
         
         self.bplot = pyqt5widget.QPushButton('Replot')
         self.brefit = pyqt5widget.QPushButton('Refit')
         self.bsinglemodefit = pyqt5widget.QPushButton('Single Mode Fit')
+        self.breloaddata = pyqt5widget.QPushButton('Reload .dat files')
+        self.bsinglemodefitall = pyqt5widget.QPushButton('Fit all Single Mode')
         
         self.bnext.clicked.connect(self.next)
         self.bprev.clicked.connect(self.prev)
@@ -127,6 +137,8 @@ class DLSViewer(pyqt5widget.QMainWindow):
         self.bplot.clicked.connect(self.replot)
         self.brefit.clicked.connect(self.refit)
         self.bsinglemodefit.clicked.connect(self.singlemodefit)
+        self.bsinglemodefitall.clicked.connect(self.singlemodefitall)
+        self.breloaddata.clicked.connect(self.reload_datfiles)
         self.infolabel = pyqt5widget.QLabel("")
         self.main_widget = pyqt5widget.QWidget(self)
         self.setCentralWidget(self.main_widget)
@@ -142,11 +154,15 @@ class DLSViewer(pyqt5widget.QMainWindow):
         self.bswitchGamma.setFixedWidth(width)
         self.bplot.setFixedWidth(width)
         self.brefit.setFixedWidth(width)
+        self.breloaddata.setFixedWidth(width)
+        self.bsinglemodefit.setFixedWidth(width)
+        self.bsinglemodefitall.setFixedWidth(width)
         
         self.lgamma1.setAlignment(QtCore.Qt.AlignRight)
         self.lgamma2.setAlignment(QtCore.Qt.AlignRight)
         self.lA1.setAlignment(QtCore.Qt.AlignRight)
         self.lf.setAlignment(QtCore.Qt.AlignRight)
+        self.lnskip.setAlignment(QtCore.Qt.AlignRight)
         
         
         button_widget = pyqt5widget.QWidget(self) 
@@ -156,9 +172,11 @@ class DLSViewer(pyqt5widget.QMainWindow):
         button_layout.addWidget(self.bvalid, 1, 0)
         button_layout.addWidget(self.bsave, 1, 1)
         button_layout.addWidget(self.bswitchGamma, 2, 0)
+        button_layout.addWidget(self.bsinglemodefit, 2, 1)
         button_layout.addWidget(self.bplot, 3, 0)
         button_layout.addWidget(self.brefit, 3, 1)
-        button_layout.addWidget(self.bsinglemodefit, 4, 0, 1, 2)
+        button_layout.addWidget(self.bsinglemodefitall, 4, 0)
+        button_layout.addWidget(self.breloaddata, 4, 1)
         button_widget.setLayout(button_layout)
         
         parameter_widget = pyqt5widget.QWidget(self) 
@@ -175,6 +193,8 @@ class DLSViewer(pyqt5widget.QMainWindow):
         parameter_layout.addWidget(self.lf, 3, 0)
         parameter_layout.addWidget(self.tf, 3, 1)
         parameter_layout.addWidget(self.cf, 3, 2)
+        parameter_layout.addWidget(self.lnskip, 5, 0)
+        parameter_layout.addWidget(self.tnskip, 5, 1)
         parameter_widget.setLayout(parameter_layout)
 
         layout = pyqt5widget.QGridLayout()
@@ -210,20 +230,44 @@ class DLSViewer(pyqt5widget.QMainWindow):
         self.ax12.set_xlabel(r"$\mathit{q^2} \, / \, \AA^{-2}$")
         self.ax12.set_ylabel(r"$\Gamma \, / \, s^{-1}$")
         
+        minq = np.inf
+        maxq = -np.inf
+        minG = np.inf
+        maxG = -np.inf
         for dataname in self.dat_files_data:
             datafile = self.dat_files_data[dataname]
             if datafile["valid"]:
                 plot_color = 'black'
             else:
                 plot_color = 'red'
-            self.ax12.errorbar(datafile["q"]**2, datafile["Gamma1"],\
+            q2_val = datafile["q"]**2
+            Gval = datafile["Gamma1"]
+            if q2_val < minq:
+                minq = q2_val
+            if q2_val > maxq:
+                maxq = q2_val
+            if Gval < minG:
+                minG = Gval
+            if Gval > maxG:
+                maxG = Gval
+            self.ax12.errorbar(q2_val, Gval,\
                              datafile["sGamma1"], color=plot_color, marker='.')
         
+        self.ax12.set_xlim([minq*0.9, maxq*1.1])
+        self.ax12.set_ylim([minG*0.9, maxG*1.1])
         self.ax12.ticklabel_format(style='sci', axis='both', scilimits=(0,0))
         self.current_point12, = self.ax12.plot([], [], marker=r'$\circ$', color='red', markersize=10)
         self.fig.tight_layout()
         self.canvas.draw()
 
+    def reload_datfiles(self):
+        try:
+            self.n_skip = int(self.tnskip.text())
+        except ValueError:
+            print("Error. Did not recognize value for skipping data points.")
+        self.load_dat_files()
+        self.replot()
+        
     def update_info_label(self):
         self.current_data = self.dat_files_data[self.dat_files_list[self.index]]
         self.infolabel.setText("Opened file: " + self.dat_files_list[self.index] + "\n" +
@@ -272,22 +316,26 @@ class DLSViewer(pyqt5widget.QMainWindow):
     def next(self, event):
         self.index = (self.index + 1) % self.N
         self.update_plots()
-    
 
     def prev(self, event):
         self.index = (self.index - 1) % self.N
         self.update_plots()
     
     def toggle_valid(self, event):
-        self.dat_files_data[self.dat_files_list[self.index]]["valid"] = not self.dat_files_data[self.dat_files_list[self.index]]["valid"]
+        self.dat_files_data[self.dat_files_list[self.index]]["valid"] =\
+              not self.dat_files_data[self.dat_files_list[self.index]]["valid"]
         self.update_plots()
         self.show_result_tab_plot()
 
     def switch_gamma(self, event):
-        self.dat_files_data[self.dat_files_list[self.index]]["Gamma1"], self.dat_files_data[self.dat_files_list[self.index]]["Gamma2"] =\
-                self.dat_files_data[self.dat_files_list[self.index]]["Gamma2"], self.dat_files_data[self.dat_files_list[self.index]]["Gamma1"]
-        self.dat_files_data[self.dat_files_list[self.index]]["sGamma1"], self.dat_files_data[self.dat_files_list[self.index]]["sGamma2"] =\
-                self.dat_files_data[self.dat_files_list[self.index]]["sGamma2"], self.dat_files_data[self.dat_files_list[self.index]]["sGamma1"]
+        self.dat_files_data[self.dat_files_list[self.index]]["Gamma1"],\
+            self.dat_files_data[self.dat_files_list[self.index]]["Gamma2"] =\
+                self.dat_files_data[self.dat_files_list[self.index]]["Gamma2"],\
+                self.dat_files_data[self.dat_files_list[self.index]]["Gamma1"]
+        self.dat_files_data[self.dat_files_list[self.index]]["sGamma1"],\
+            self.dat_files_data[self.dat_files_list[self.index]]["sGamma2"] =\
+                self.dat_files_data[self.dat_files_list[self.index]]["sGamma2"],\
+                self.dat_files_data[self.dat_files_list[self.index]]["sGamma1"]
         self.dat_files_data[self.dat_files_list[self.index]]["A1"] =\
                 1-self.dat_files_data[self.dat_files_list[self.index]]["A1"]
         self.update_plots()
@@ -335,7 +383,7 @@ class DLSViewer(pyqt5widget.QMainWindow):
         print("Saved data to " + self.data_folder_path+"/TwoModeRESULT.TAB")
         print("All data used for fitting is binary stored in " + self.data_folder_path+"/TwoModeFittingData.p")
             
-    def replot(self, event):
+    def replot(self):
         try:
             gamma1 = float(self.tgamma1.text())
             gamma2 = float(self.tgamma2.text())
@@ -384,13 +432,13 @@ class DLSViewer(pyqt5widget.QMainWindow):
             self.dat_files_data[self.dat_files_list[self.index]]["sGamma2"] = fit_result.params["Gamma2"].stderr
             self.dat_files_data[self.dat_files_list[self.index]]["f"] = fit_result.params["f"].value
             self.dat_files_data[self.dat_files_list[self.index]]["sf"] = fit_result.params["f"].stderr
-            self.dat_files_data[self.dat_files_list[self.index]]["g2_fit"] = calc_g2(fit_result.params, tau)
+            self.dat_files_data[self.dat_files_list[self.index]]["g2_fit"] = self.calc_g2(fit_result.params, tau)
             self.show_result_tab_plot()
             self.update_plots()
         except TypeError:
             print("Non float number entered in box")
     
-    def singlemodefit(self, event):
+    def singlemodefit(self):
         try:
             gamma1 = float(self.tgamma1.text())
             f = float(self.tf.text())
@@ -424,7 +472,15 @@ class DLSViewer(pyqt5widget.QMainWindow):
         except TypeError:
             print("Non float number entered in box")
             
-
+    def singlemodefitall(self):
+        for ifile, dat_file in enumerate(self.list_of_dat_files):
+            self.index = ifile
+            self.update_plots()
+            QtCore.QCoreApplication.processEvents()
+            self.singlemodefit()
+            QtCore.QCoreApplication.processEvents()
+        
+        
     def load_dat_file(self, file_path):
         load_file = open(file_path, 'r', errors="ignore")
         tau = []
@@ -536,7 +592,7 @@ class DLSViewer(pyqt5widget.QMainWindow):
         dataset["sGamma2"] = fit_result.params["Gamma1"].stderr
         dataset["f"] = fit_result.params["f"].value
         dataset["sf"] = fit_result.params["f"].stderr
-        dataset["g2_fit"] = calc_g2(fit_result.params, dataset["tau"])
+        dataset["g2_fit"] = self.calc_g2(fit_result.params, dataset["tau"])
         dataset["valid"] = True
         
         return dataset
