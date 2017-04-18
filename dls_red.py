@@ -11,6 +11,7 @@ import warnings
 # remove some annoying deprecation warnings
 from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 from matplotlib import gridspec
 import numpy as np
 import sys, os, glob, lmfit, pickle, fortranDLS
@@ -19,7 +20,7 @@ warnings.filterwarnings("ignore", category=UserWarning, module='matplotlib')
 
 mpl.rcParams['font.size'] = 8
 pi = np.pi    
-version = 1.1
+version = 1.2
 
 class DLSViewer(pyqt5widget.QMainWindow):
     def __init__(self, parent = None):
@@ -56,7 +57,6 @@ class DLSViewer(pyqt5widget.QMainWindow):
         self.mean_wavelength = np.mean(wavelengths)
         self.mean_dur = np.mean(durs)
         self.mean_n = np.mean(ref_indxs)
-        
         self.N = len(self.dat_files_list)
         self.current_data = None
         
@@ -66,7 +66,7 @@ class DLSViewer(pyqt5widget.QMainWindow):
         
         self.plot11, = self.ax11.plot([], [], color='black', marker='.')
         self.ax11.set_xlabel(r"$\mathit{t} \, / \, s$")
-        self.ax11.set_ylabel(r"$\mathit{f} \, / \, Hz$")
+        self.ax11.set_ylabel(r"$\mathit{f} \, / \, kHz$")
         
         self.ax11.ticklabel_format(style='sci', axis='both', scilimits=(0,0))
         
@@ -128,6 +128,9 @@ class DLSViewer(pyqt5widget.QMainWindow):
         self.bsinglemodefit = pyqt5widget.QPushButton('Single Mode Fit')
         self.breloaddata = pyqt5widget.QPushButton('Reload .dat files')
         self.bsinglemodefitall = pyqt5widget.QPushButton('Fit all Single Mode')
+        self.bplot2d = pyqt5widget.QPushButton('Plot Data 2D')
+        self.bsavethGamma = pyqt5widget.QPushButton('Save data th, Gamma')
+        self.bsave_counts = pyqt5widget.QPushButton('Save all counts')
         
         self.bnext.clicked.connect(self.next)
         self.bprev.clicked.connect(self.prev)
@@ -138,7 +141,11 @@ class DLSViewer(pyqt5widget.QMainWindow):
         self.brefit.clicked.connect(self.refit)
         self.bsinglemodefit.clicked.connect(self.singlemodefit)
         self.bsinglemodefitall.clicked.connect(self.singlemodefitall)
+        self.bplot2d.clicked.connect(self.plot2d)
         self.breloaddata.clicked.connect(self.reload_datfiles)
+        self.bsavethGamma.clicked.connect(self.save_data_theta_Gamma)
+        self.bsave_counts.clicked.connect(self.save_counts)
+
         self.infolabel = pyqt5widget.QLabel("")
         self.main_widget = pyqt5widget.QWidget(self)
         self.setCentralWidget(self.main_widget)
@@ -157,6 +164,8 @@ class DLSViewer(pyqt5widget.QMainWindow):
         self.breloaddata.setFixedWidth(width)
         self.bsinglemodefit.setFixedWidth(width)
         self.bsinglemodefitall.setFixedWidth(width)
+        self.bsavethGamma.setFixedWidth(width)
+        self.bsave_counts.setFixedWidth(width)
         
         self.lgamma1.setAlignment(QtCore.Qt.AlignRight)
         self.lgamma2.setAlignment(QtCore.Qt.AlignRight)
@@ -177,6 +186,9 @@ class DLSViewer(pyqt5widget.QMainWindow):
         button_layout.addWidget(self.brefit, 3, 1)
         button_layout.addWidget(self.bsinglemodefitall, 4, 0)
         button_layout.addWidget(self.breloaddata, 4, 1)
+        button_layout.addWidget(self.bplot2d, 5, 0)
+        button_layout.addWidget(self.bsavethGamma, 5, 1)
+        button_layout.addWidget(self.bsave_counts, 6, 0)
         button_widget.setLayout(button_layout)
         
         parameter_widget = pyqt5widget.QWidget(self) 
@@ -342,8 +354,8 @@ class DLSViewer(pyqt5widget.QMainWindow):
         self.show_result_tab_plot()
     
     
-    def save_data(self, event):
-        save_file = open(self.data_folder_path+"/TwoModeRESULT.TAB", "w")
+    def save_data(self, event, save_thG=False):
+        save_file = open(self.data_folder_path+"/DLS_results.xye", "w")
         precision = "{:.4e}"
         save_file.write("#DLS data evaluated using Dominiques two mode fitting "+\
                         "script v" + str(version) + "\n")
@@ -355,34 +367,87 @@ class DLSViewer(pyqt5widget.QMainWindow):
         save_file.write("#Refractive index: " + str(self.mean_n) + "\n")
         save_file.write("#Wavelength: " + str(self.mean_wavelength) + " nm\n")
         
-        if "-saveth" in sys.argv:
-            first_header = "#2th/° \tGamma1/s-1 \tsGamma1\tGamma2/s-1 \tsGamma2/s-1\tA1 \tsA1\t f\t sf\n"
+        #are all datasets fitted in single mode?
+        mode_single = False
+        for dataname in self.dat_files_list:
+            dataset = self.dat_files_data[dataname]
+            mode_single = mode_single or np.allclose(dataset["Gamma2"], 0.)
+
+        if save_thG:
+            if mode_single:
+                first_header = "#2th/° \tGamma/s-1 \tsGamma/s-1\t f\t sf\n"
+            else:
+                first_header = "#2th/° \tGamma1/s-1 \tsGamma1/s-1\tGamma2/s-1 "+\
+                                        "\tsGamma2/s-1\tA1 \tsA1\t f\t sf\n"
             x_arg = "ang"
         else:
-            first_header = "#q/A-1 \t\tGamma1/s-1 \tsGamma1 \tGamma2/s-1 \tsGamma2/s-1 \tA1 \t\tsA1\t f\t sf\n"
+            if mode_single:
+                first_header = "#q/A-1 \t\tGamma/s-1 \tsGamma/s-1\tf\t sf\n"
+            else:
+                first_header = "#q/A-1 \t\tGamma1/s-1 \tsGamma1/s-1 \tGamma2/s-1 "+\
+                                        "\tsGamma2/s-1 \tA1 \t\tsA1\t f\t sf\n"
             x_arg = "q"
-            
+        
+
         save_file.write(first_header)
         for dataname in self.dat_files_list:
             dataset = self.dat_files_data[dataname]
-            savetxt = precision.format(dataset[x_arg]) +"\t"+\
-                    precision.format(dataset["Gamma1"]) + "\t" +\
-                    precision.format(dataset["sGamma1"])+ "\t"+\
-                    precision.format(dataset["Gamma2"]) + "\t" +\
-                    precision.format(dataset["sGamma2"])+ "\t"+\
-                    precision.format(dataset["A1"]) + " \t" +\
-                    precision.format(dataset["sA1"])+"\t"+\
-                    precision.format(dataset["f"]) + "\t" +\
-                    precision.format(dataset["sf"])+ "\n"
+            if mode_single:
+                savetxt = precision.format(dataset[x_arg]) +"\t"+\
+                        precision.format(dataset["Gamma1"]) + "\t" +\
+                        precision.format(dataset["sGamma1"])+ "\t"+\
+                        precision.format(dataset["f"]) + "\t" +\
+                        precision.format(dataset["sf"])+ "\n"
+            else:
+                savetxt = precision.format(dataset[x_arg]) +"\t"+\
+                        precision.format(dataset["Gamma1"]) + "\t" +\
+                        precision.format(dataset["sGamma1"])+ "\t"+\
+                        precision.format(dataset["Gamma2"]) + "\t" +\
+                        precision.format(dataset["sGamma2"])+ "\t"+\
+                        precision.format(dataset["A1"]) + " \t" +\
+                        precision.format(dataset["sA1"])+"\t"+\
+                        precision.format(dataset["f"]) + "\t" +\
+                        precision.format(dataset["sf"])+ "\n"
             if not dataset["valid"]:
                 savetxt = "#"+savetxt
             save_file.write(savetxt)
         save_file.close()
         
-        pickle.dump ( (self.dat_files_list, self.dat_files_data), open(self.data_folder_path+"/TwoModeFittingData.p", "wb"))
-        print("Saved data to " + self.data_folder_path+"/TwoModeRESULT.TAB")
-        print("All data used for fitting is binary stored in " + self.data_folder_path+"/TwoModeFittingData.p")
-            
+        pickle.dump ( (self.dat_files_list, self.dat_files_data),\
+                    open(self.data_folder_path+"/DLS_fitting.p", "wb"))
+        print("Saved data to " + self.data_folder_path+"/DLS_results.xye")
+        print("All data used for fitting is binary stored in " +\
+                                self.data_folder_path+"/DLS_fitting.p")
+    
+    def save_counts(self, event):
+        save_file = open(self.data_folder_path+"/DLS_counts.xye", "w")
+        precision = "{:.4e}"
+        save_file.write("#DLS counts extracted using Dominiques two mode fitting "+\
+                        "script v" + str(version) + "\n")
+        save_file.write("#For questions contact: Dominique.Dresen@uni-koeln.de\n")
+        save_file.write("#Read .dat files from folder: " + self.data_folder_path + "\n")
+        save_file.write("#Skipped " + str(self.n_skip) + " datapoints "+\
+                        "at beginning while reading tau, g2 data from each .dat file.\n")
+        save_file.write("#Mean duration of measurements: " + str(self.mean_dur) + " s\n")
+        save_file.write("#Refractive index: " + str(self.mean_n) + "\n")
+        save_file.write("#Wavelength: " + str(self.mean_wavelength) + " nm\n")
+        
+        save_file.write("#2th/° \tf_mean/kHz\tf_std/kHz\n")
+        for dataname in self.dat_files_list:
+            dataset = self.dat_files_data[dataname]
+            mean_frequency = np.mean(dataset['freq'])
+            std_frequency = np.std(dataset['freq'], ddof=1)
+            savetxt = precision.format(dataset['ang']) +"\t"+\
+                        precision.format(mean_frequency) + "\t" +\
+                        precision.format(std_frequency)+ "\n"
+            if not dataset["valid"]:
+                savetxt = "#"+savetxt
+            save_file.write(savetxt)
+        save_file.close()
+    
+    def save_data_theta_Gamma(self, event):
+        self.save_data(event, save_thG=True)
+
     def replot(self):
         try:
             gamma1 = float(self.tgamma1.text())
@@ -407,6 +472,42 @@ class DLSViewer(pyqt5widget.QMainWindow):
         except TypeError:
             print("Non float number entered in box")
     
+    def plot2d(self):
+        tau = self.dat_files_data[self.dat_files_list[self.index]]["tau"]
+        q2_vals = []
+        g2_vals = []
+#        Nq2 = len(self.dat_files_list)
+#        g2_array = np.zeros((Nq2, len(tau)))
+        for i in range(len(self.dat_files_list)):
+            current_file = self.dat_files_data[self.dat_files_list[i]]
+            if not current_file["valid"]:
+                continue
+            q2 = current_file["q"]**2
+            g2 = current_file["g2"]
+            
+            already_loaded = False
+            for idx, other_q2val in enumerate(q2_vals):
+                if np.allclose(other_q2val, q2):
+                    already_loaded = True
+                    loaded_idx = idx
+                    break
+                    
+            if already_loaded:
+                g2_vals[loaded_idx].append(g2)
+            else:
+                q2_vals.append(q2)
+                g2_vals.append([g2])
+        
+        g2_array = np.zeros((len(q2_vals), len(tau)))
+        for ix, loaded_g2 in enumerate(g2_vals):
+            g2_array[ix, :] = np.sum(loaded_g2, axis=0)/len(loaded_g2)
+            
+        self.plotdialog = PlotDialog(q2_vals, tau, g2_array, self)
+        
+        self.plotdialog.resize(800,800)
+        self.plotdialog.show()
+        self.plotdialog.exec_()
+
     def refit(self, event):
         try:
             gamma1 = float(self.tgamma1.text())
@@ -424,15 +525,24 @@ class DLSViewer(pyqt5widget.QMainWindow):
                          args=(tau, self.dat_files_data[self.dat_files_list[self.index]]["g2"]),\
                          method="leastsq")
 
-            self.dat_files_data[self.dat_files_list[self.index]]["A1"] = fit_result.params["A1"].value
-            self.dat_files_data[self.dat_files_list[self.index]]["sA1"] = fit_result.params["A1"].stderr
-            self.dat_files_data[self.dat_files_list[self.index]]["Gamma1"] = fit_result.params["Gamma1"].value
-            self.dat_files_data[self.dat_files_list[self.index]]["sGamma1"] = fit_result.params["Gamma1"].stderr
-            self.dat_files_data[self.dat_files_list[self.index]]["Gamma2"] = fit_result.params["Gamma2"].value
-            self.dat_files_data[self.dat_files_list[self.index]]["sGamma2"] = fit_result.params["Gamma2"].stderr
-            self.dat_files_data[self.dat_files_list[self.index]]["f"] = fit_result.params["f"].value
-            self.dat_files_data[self.dat_files_list[self.index]]["sf"] = fit_result.params["f"].stderr
-            self.dat_files_data[self.dat_files_list[self.index]]["g2_fit"] = self.calc_g2(fit_result.params, tau)
+            self.dat_files_data[self.dat_files_list[self.index]]["A1"] =\
+                                                fit_result.params["A1"].value
+            self.dat_files_data[self.dat_files_list[self.index]]["sA1"] =\
+                                                fit_result.params["A1"].stderr
+            self.dat_files_data[self.dat_files_list[self.index]]["Gamma1"] =\
+                                                fit_result.params["Gamma1"].value
+            self.dat_files_data[self.dat_files_list[self.index]]["sGamma1"] =\
+                                                fit_result.params["Gamma1"].stderr
+            self.dat_files_data[self.dat_files_list[self.index]]["Gamma2"] =\
+                                                fit_result.params["Gamma2"].value
+            self.dat_files_data[self.dat_files_list[self.index]]["sGamma2"] =\
+                                                fit_result.params["Gamma2"].stderr
+            self.dat_files_data[self.dat_files_list[self.index]]["f"] =\
+                                                fit_result.params["f"].value
+            self.dat_files_data[self.dat_files_list[self.index]]["sf"] =\
+                                                fit_result.params["f"].stderr
+            self.dat_files_data[self.dat_files_list[self.index]]["g2_fit"] =\
+                                                self.calc_g2(fit_result.params, tau)
             self.show_result_tab_plot()
             self.update_plots()
         except TypeError:
@@ -596,6 +706,58 @@ class DLSViewer(pyqt5widget.QMainWindow):
         dataset["valid"] = True
         
         return dataset
+
+class PlotDialog(pyqt5widget.QDialog):
+    def __init__(self, q2_vals, tau, g2_array, parent=None):
+        super().__init__(parent)
+        
+        #Nice Coloring:
+        c = mpl.colors.ColorConverter().to_rgb
+        custom_colors = [(0, 0, 0, 0),\
+                 (0.18, 0.05, 0.05, 0.2),\
+                 (0.28, 0, 0, 1),\
+                 (0.4, 0.7, 0.85, 0.9),\
+                 (0.45, 0, 0.75, 0),\
+                 (0.6, 1, 1, 0),\
+                 (0.75, 1, 0, 0),\
+                 (0.92 , 0.6, 0.6, 0.6),\
+                 (1  , 0.95, 0.95, 0.95)]
+        cdict = {'red': [], 'green': [], 'blue': []}
+        for i, item in enumerate(custom_colors):
+            pos, r, g, b = item
+            cdict['red'].append([pos, r, r])
+            cdict['green'].append([pos, g, g])
+            cdict['blue'].append([pos, b, b])
+        self.cmap = mpl.colors.LinearSegmentedColormap('CustomMap', cdict)
+        self.cmap.set_bad(color='black')
+
+
+        self.fig = plt.figure(figsize=(8/2.54, 8/2.54))
+        self.ax = self.fig.add_axes([0.2, 0.15, 0.6, 0.8])
+        im = self.ax.pcolormesh(q2_vals, tau, g2_array.T, cmap=self.cmap)
+        divider = make_axes_locatable(self.ax)
+        cax = divider.append_axes("right", size="5%", pad=0.05)
+        cb = plt.colorbar(im, cax=cax)
+        cb.set_label("$g_2$")
+        self.ax.ticklabel_format(style='sci', axis='x', scilimits=(0,0))
+        self.ax.set_yscale('log')
+        self.ax.set_xlim([min(q2_vals), max(q2_vals)])
+        self.ax.set_ylim([min(tau), max(tau)])
+        self.ax.set_xlabel("$q^2 \, / \, m^{-2}$")
+        self.ax.set_ylabel(r"$\tau \, / \, s$")
+        self.canvas = FigureCanvas(self.fig)
+
+        # use addToolbar to add toolbars to the main window directly!
+        self.toolbar = NavigationToolbar(self.canvas, self)
+        
+        layout = pyqt5widget.QVBoxLayout()
+        layout.addWidget(self.canvas, 0)
+        layout.addWidget(self.toolbar, 1)
+        
+
+        self.main_widget = pyqt5widget.QWidget(self)
+        self.main_widget.setLayout(layout)
+
         
 if __name__=='__main__':
     qApp = pyqt5widget.QApplication(sys.argv)
