@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from matplotlib import gridspec
 import numpy as np
-import sys, os, glob, lmfit, pickle, fortranDLS
+import sys, os, glob, lmfit, pickle
 warnings.filterwarnings("ignore", category=UserWarning, module='matplotlib')
 
 
@@ -37,11 +37,11 @@ class DLSViewer(pyqt5widget.QMainWindow):
         
         self.qtimer = QtCore.QTimer()
         
-        if os.path.exists(self.data_folder_path+"/TwoModeFittingData.p"):
+        if os.path.exists(self.data_folder_path+"/DLS_fitting.p"):
             print("Loading previous fitting results from " +\
-                        self.data_folder_path+"/TwoModeFittingData.p")
+                        self.data_folder_path+"/DLS_fitting.p")
             self.dat_files_list, self.dat_files_data =\
-                pickle.load( open( self.data_folder_path+"/TwoModeFittingData.p", "rb" ) )
+                pickle.load( open( self.data_folder_path+"/DLS_fitting.p", "rb" ) )
         else:
             self.load_dat_files()
 
@@ -215,8 +215,6 @@ class DLSViewer(pyqt5widget.QMainWindow):
         layout.addWidget(button_widget, 1, 0, 1, 2)
         layout.addWidget(parameter_widget, 1,2)
 
-        
-        
         self.main_widget.setLayout(layout)
         self.show_result_tab_plot()
         self.update_plots()
@@ -672,7 +670,9 @@ class DLSViewer(pyqt5widget.QMainWindow):
         Gamma1 = p["Gamma1"].value
         Gamma2 = p["Gamma2"].value
         A1 = p["A1"].value
-        return fortranDLS.dls.calc_g2_twog(tau, A1, Gamma1, Gamma2, 1., f)
+        g1 = A1*np.exp(-tau*Gamma1) + (1.-A1)*np.exp(-tau*Gamma2)
+        return 1 + f*g1**2
+        # return fortranDLS.dls.calc_g2_twog(tau, A1, Gamma1, Gamma2, 1., f)
 
     def residuum(self, p, tau, g2):
         return g2 - self.calc_g2(p, tau)
@@ -680,7 +680,9 @@ class DLSViewer(pyqt5widget.QMainWindow):
     def calc_g2_single(self, p, tau):
         f = p["f"].value
         Gamma = p["Gamma"].value
-        return fortranDLS.dls.calc_g2(tau, Gamma, 1., f)
+        g1 = np.exp(-tau*Gamma)
+        return 1 + f*g1**2
+        # return fortranDLS.dls.calc_g2(tau, Gamma, 1., f)
 
     def residuum_single(self, p, tau, g2):
         return g2 - self.calc_g2_single(p, tau)
@@ -761,7 +763,7 @@ class PlotDialog(pyqt5widget.QDialog):
         
 if __name__=='__main__':
     qApp = pyqt5widget.QApplication(sys.argv)
-    main_window = DLSViewer()#dat_files_data, dat_files_list, data_folder_path)
+    main_window = DLSViewer()
     main_window.resize(1248, 900)
     main_window.show()
     sys.exit(qApp.exec_())   
