@@ -132,6 +132,8 @@ class DLSViewer(pyqt5widget.QMainWindow):
         self.bsavethGamma = pyqt5widget.QPushButton('Save data th, Gamma')
         self.bsave_counts = pyqt5widget.QPushButton('Save all counts')
         
+        self.bsave_corfreq = pyqt5widget.QPushButton('Save Autocorrelation+Frequency')
+        
         self.bnext.clicked.connect(self.next)
         self.bprev.clicked.connect(self.prev)
         self.bvalid.clicked.connect(self.toggle_valid)
@@ -145,6 +147,7 @@ class DLSViewer(pyqt5widget.QMainWindow):
         self.breloaddata.clicked.connect(self.reload_datfiles)
         self.bsavethGamma.clicked.connect(self.save_data_theta_Gamma)
         self.bsave_counts.clicked.connect(self.save_counts)
+        self.bsave_corfreq.clicked.connect(self.save_corr_freq)
 
         self.infolabel = pyqt5widget.QLabel("")
         self.main_widget = pyqt5widget.QWidget(self)
@@ -166,6 +169,7 @@ class DLSViewer(pyqt5widget.QMainWindow):
         self.bsinglemodefitall.setFixedWidth(width)
         self.bsavethGamma.setFixedWidth(width)
         self.bsave_counts.setFixedWidth(width)
+        self.bsave_corfreq.setFixedWidth(width)
         
         self.lgamma1.setAlignment(QtCore.Qt.AlignRight)
         self.lgamma2.setAlignment(QtCore.Qt.AlignRight)
@@ -189,6 +193,7 @@ class DLSViewer(pyqt5widget.QMainWindow):
         button_layout.addWidget(self.bplot2d, 5, 0)
         button_layout.addWidget(self.bsavethGamma, 5, 1)
         button_layout.addWidget(self.bsave_counts, 6, 0)
+        button_layout.addWidget(self.bsave_corfreq, 6, 1)
         button_widget.setLayout(button_layout)
         
         parameter_widget = pyqt5widget.QWidget(self) 
@@ -664,6 +669,22 @@ class DLSViewer(pyqt5widget.QMainWindow):
         "dur": duration}
         return dat_file_data
 
+    def save_corr_freq(self):
+        t_freq = self.current_data['t_freq']
+        freq = self.current_data['freq']
+        tau = self.current_data['tau']
+        g2 = self.current_data['g2']
+        
+        with open('0AutocorrelationFunction.dat', 'w') as f:
+            f.write('#tau / s \t g2\n')
+            for i, tau_val in enumerate(tau):
+                f.write(str(tau_val) + '\t' + str(g2[i]) + '\n' )
+        
+        with open('0CountFrequency.dat', 'w') as f:
+            f.write('#t_freq / s \t freq/kHz\n')
+            for i, t_val in enumerate(t_freq):
+                f.write(str(t_val) + '\t' + str(freq[i]) + '\n' )
+        
 
     def calc_g2(self, p, tau):
         f = p["f"].value
